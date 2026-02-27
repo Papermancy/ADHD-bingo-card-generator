@@ -1,5 +1,7 @@
 # app.py
-import io, zipfile, random
+import io
+import random
+import zipfile
 import streamlit as st
 from openpyxl import Workbook
 from openpyxl.styles import Alignment
@@ -43,7 +45,7 @@ if st.button("Reset to default deck"):
     st.session_state.items_text = DEFAULT_ITEMS
 
 raw = st.text_area(
-    "Self-care options (one per line). Need at least 24.",
+    "Self-care options (one per line). Need at least 24 unique items.",
     height=320,
     key="items_text",
 )
@@ -51,14 +53,37 @@ raw = st.text_area(
 free = st.text_input("Free center square", "🐿️")
 n_cards = st.number_input("How many cards?", min_value=1, max_value=50, value=7)
 
-items = [line.strip() for line in raw.splitlines() if line.strip()]
-items = list(dict.fromkeys(items))  # remove duplicates, preserve order
+# --- Parse & clean input ---
+lines = [line.strip() for line in raw.splitlines()]
+items = [x for x in lines if x]  # remove empty
+
+# de-dupe (preserve order)
+items = list(dict.fromkeys(items))
 
 def make_card(all_items):
-    selected = random.sample(all_items, 24)  # choose 24 randomly
-    random.shuffle(selected)
-    grid = [selected[i*5:(i+1)*5] for i in range(5)]
-    grid[2][2] = free
+    """Return a strict 5x5 list-of-lists with center replaced by `free`."""
+    if len(all_items) < 24:
+        raise ValueError("Need at least 24 unique items to generate a 5x5 card.")
+
+    # Choose 24 unique items for the non-center squares
+    chosen = random.sample(all_items, 24)
+    random.shuffle(chosen)
+
+    # Fill 5x5 with a center hole at (2,2)
+    grid = []
+    k = 0
+    for r in range(5):
+        row = []
+        for c in range(5):
+            if r == 2 and c == 2:
+                row.append(free)
+            else:
+                row.append(chosen[k])
+                k += 1
+        grid.append(row)
+
+    # sanity check
+    assert len(grid) == 5 and all(len(r) == 5 for r in grid)
     return grid
 
 def card_to_xlsx_bytes(card, title):
@@ -68,10 +93,8 @@ def card_to_xlsx_bytes(card, title):
 
     for r in range(5):
         for c in range(5):
-            cell = ws.cell(row=r+1, column=c+1, value=card[r][c])
-            cell.alignment = Alignment(
-                wrap_text=True, horizontal="center", vertical="center"
-            )
+            cell = ws.cell(row=r + 1, column=c + 1, value=card[r][c])
+            cell.alignment = Alignment(wrap_text=True, horizontal="center", vertical="center")
 
     for col in range(1, 6):
         ws.column_dimensions[get_column_letter(col)].width = 28
@@ -99,4 +122,4 @@ if st.button("Generate"):
         data=zip_buf.getvalue(),
         file_name="squirrel_bingo_cards.zip",
         mime="application/zip",
-    )  
+    )
